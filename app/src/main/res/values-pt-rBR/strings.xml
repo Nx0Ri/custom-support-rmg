@@ -154,4 +154,26 @@
     <string name="device_mismatch_body">Este telefone é %1$s, mas o payload selecionado suporta %2$s. Executá-lo pode causar crash ou danificar o dispositivo.</string>
     <string name="kernel_version_mismatch_title">Versão de kernel incompatível</string>
     <string name="kernel_version_mismatch_body">Este telefone usa kernel %1$s, mas o payload selecionado suporta %2$s. Os offsets podem ser incompatíveis.</string>
+    <string name="updater_available_title">Uma atualização está disponível</string>
+    <string name="updater_available_body">A versão %1$s está disponível</string>
+    <string name="updater_available_body_short">%1$s está disponível</string>
+    <string name="updater_button_download">Baixar e instalar</string>
+    <string name="updater_downloading">Baixando…</string>
+    <string name="updater_download_failed">Falha no download</string>
+    <string name="updater_check">Verificar atualizações</string>
+    <string name="updater_checking">Verificando atualizações…</string>
+    <string name="updater_up_to_date">Você está atualizado</string>
+    <string name="updater_failed">Falha ao verificar atualizações</string>
+    <string name="history_select_all">Selecionar tudo</string>
+    <string name="history_clear_selection">Limpar seleção</string>
+    <string name="history_delete_selected">Excluir (%1$d)</string>
+    <plurals name="history_delete_selected_title">
+        <item quantity="one">Excluir esta execução?</item>
+        <item quantity="other">Excluir %1$d execuções?</item>
+    </plurals>
+    <plurals name="history_delete_selected_body">
+        <item quantity="one">Esta execução e seu log serão removidos permanentemente.</item>
+        <item quantity="other">Estas execuções e seus logs serão removidos permanentemente.</item>
+    </plurals>
+    <string name="history_delete">Excluir</string>
 </resources>
