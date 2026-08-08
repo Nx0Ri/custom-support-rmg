@@ -5,7 +5,7 @@
     <string name="nav_history">Histórico</string>
     <string name="nav_settings">Configurações</string>
     <string name="install_confirm_title">Instalar o KernelSU?</string>
-    <string name="install_confirm_body">O app vai verificar o perfil suportado, e depois baixar e rodar o exploit e o payload do KernelSU do GitHub.\n\nO root será perdido quando você reiniciar seu dispositivo e o sucesso do exploit depende do estado atual da RAM. Se o exploit falhar, reinicie o dispositivo e tente novamente. Você também pode usar o Shizuku (Configurações > Usar Shizuku) para garantir maiores chances do exploit funcionar.</string>
+    <string name="install_confirm_body">O app vai verificar o perfil suportado, e depois baixar e rodar o exploit e o payload do KernelSU do GitHub.\n\nO root será perdido quando você reiniciar seu dispositivo e o sucesso do exploit depende do estado atual da RAM. Se o exploit falhar, reinicie o dispositivo e tente novamente. Você também pode usar o Shizuku (Configurações &gt; Usar Shizuku) para garantir maiores chances do exploit funcionar.</string>
     <string name="action_confirm">Confirmar</string>
     <string name="action_cancel">Cancelar</string>
     <string name="action_close">Fechar</string>
@@ -22,6 +22,7 @@
     <string name="kernelsu_card_description">Uma solução de root baseada em kernel para Android</string>
     <string name="firmware">Firmware</string>
     <string name="system">Sistema</string>
+    <string name="kernel">Kernel</string>
     <string name="system_abi">ABI do Sistema</string>
     <string name="settings">Configurações</string>
     <string name="version_format">%1$s (%2$d)</string>
@@ -43,7 +44,7 @@
     <string name="language_brazillian_portuguese" translatable="false">Português Brasileiro</string>
     <string name="language_russian" translatable="false">Русский</string>
     <string name="language_vietnamese" translatable="false">Tiếng Việt</string>
-    <string name="language_uzbek" translatable="false">O\'zbek</string>
+    <string name="language_uzbek" translatable="false">O'zb ek</string>
     <string name="color_dynamic">Dinâmico do sistema</string>
     <string name="color_blue">Azul</string>
     <string name="color_violet">Violeta</string>
@@ -139,7 +140,7 @@
     <string name="shizuku_not_running_title">Shizuku não está em execução</string>
     <string name="shizuku_not_running_body">Inicie o serviço Shizuku com adb ou root e conceda permissão a este app, depois ative esta opção.</string>
     <string name="action_download_shizuku">Baixar Shizuku</string>
-    <string name="error_shizuku_unavailable">Shizuku não está em execução. Inicie Shizuku com adb ou root primeiro.</string>
+    <string name="error_shizuku_unavailable">Shizuku não está em execução. Inicie o Shizuku com adb ou root primeiro.</string>
     <string name="error_shizuku_permission">Permissão do Shizuku não foi concedida</string>
     <string name="error_shizuku_stage">Não foi possível preparar %1$s através do Shizuku: %2$s</string>
     <string name="log_shizuku_prepare">[*] Preparando execução do Shizuku</string>
