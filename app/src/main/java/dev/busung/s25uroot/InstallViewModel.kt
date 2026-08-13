@@ -292,6 +292,8 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                         break
                     }
                     if (rawLog.contains("full route requires P0 discovery") || rawLog.contains("fresh P0 session was consumed")) {
+                        // Очищаем битый оффсет, чтобы следующий прогон не упал из-за него
+                        bootToken?.let { clearP0Offset(it) }
                         process.destroy()
                         throw java.lang.IllegalStateException("Wasted P0 session. Device reboot required.")
                     }
@@ -307,7 +309,13 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
             }
 
             if (localBootstrapAcquired) {
-                process.destroy()
+                // ХАК ОРИ: Даем эксплойту 2.5 секунды, чтобы он успел закрепить рут
+                var gracePeriod = 25
+                while (process.isAlive && gracePeriod > 0) {
+                    delay(100)
+                    gracePeriod--
+                }
+                if (process.isAlive) process.destroy()
             } else {
                 val exitCode = process.waitFor()
                 val rawLog = readLog()
@@ -315,6 +323,7 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                 publishExploitLog(logPrefix, rawLog)
 
                 if (rawLog.contains("full route requires P0 discovery") || rawLog.contains("fresh P0 session was consumed")) {
+                    bootToken?.let { clearP0Offset(it) }
                     error("Wasted P0 session. Device reboot required.")
                 }
 
@@ -439,7 +448,8 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
         if (lateLoad.output.isNotBlank()) appendLog(lateLoad.output)
         storeInstallReceipt()
 
-        runHelper("-c", "/system/bin/rm -f /data/local/tmp/ksud-s25u-kdp /data/local/tmp/.ksud-stage /data/local/tmp/ksu-exploit.log /data/local/tmp/ksu-payload /data/local/tmp/ksu-helper")
+        // Удаляем только логи и мусор. БИНАРНИКИ KERNELSU (ksud) ТРОГАТЬ НЕЛЬЗЯ!
+        runHelper("-c", "/system/bin/rm -f /data/local/tmp/ksu-exploit.log /data/local/tmp/ksu-payload /data/local/tmp/ksu-helper")
         appendLog("[*] System hygiene: Temporary exploit files wiped")
 
         appendLog(app.getString(R.string.log_ksu_control_verified))
@@ -475,6 +485,13 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
         val stored = app.getSharedPreferences(P0_CACHE, Application.MODE_PRIVATE)
         if (stored.getString(P0_CACHE_BOOT_TOKEN, null) != bootToken) return null
         return stored.getString(P0_CACHE_OFFSET, null)
+    }
+
+    private fun clearP0Offset(bootToken: String) {
+        val stored = app.getSharedPreferences(P0_CACHE, Application.MODE_PRIVATE)
+        if (stored.getString(P0_CACHE_BOOT_TOKEN, null) == bootToken) {
+            stored.edit().remove(P0_CACHE_OFFSET).apply()
+        }
     }
 
     private fun cacheP0Offset(bootToken: String?, log: String) {
@@ -597,7 +614,7 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
 
     companion object {
         private const val EXPLOIT_ATTEMPTS = "30"
-        private const val P0_ATTEMPT_TIMEOUT_SEC = "60"
+        private const val P0_ATTEMPT_TIMEOUT_SEC = "30"
         private const val EXPLOIT_ATTEMPT_TIMEOUT_SEC = "240"
         private const val EXPLOIT_STALL_MILLIS = 150_000L
         private const val EXPLOIT_TOTAL_MILLIS = 900_000L
