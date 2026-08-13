@@ -101,6 +101,11 @@ class PayloadRepository(private val context: Context) {
 
     private fun rawUrl(commit: String, path: String) = "$RAW_REPOSITORY/$commit/$path"
 
+    private fun pinArtifactUrl(url: String, commit: String): String {
+        return url
+    }
+
+
     private fun downloadBytes(url: String, maximum: Int): ByteArray {
         val connection = open(url)
         val bytes = connection.inputStream.use { input ->
