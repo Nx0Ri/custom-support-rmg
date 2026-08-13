@@ -614,7 +614,7 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
 
     companion object {
         private const val EXPLOIT_ATTEMPTS = "30"
-        private const val P0_ATTEMPT_TIMEOUT_SEC = "30"
+        private const val P0_ATTEMPT_TIMEOUT_SEC = "60"
         private const val EXPLOIT_ATTEMPT_TIMEOUT_SEC = "240"
         private const val EXPLOIT_STALL_MILLIS = 150_000L
         private const val EXPLOIT_TOTAL_MILLIS = 900_000L
