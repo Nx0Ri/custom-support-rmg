@@ -20,7 +20,8 @@ enum class AccentColor(val storedValue: String) {
 enum class AppThemeMode(val storedValue: String) {
     System("system"),
     Light("light"),
-    Dark("dark");
+    Dark("dark"),
+    Amoled("amoled");
 
     companion object {
         fun fromStoredValue(value: String?): AppThemeMode =
@@ -34,6 +35,8 @@ object AppPreferences {
     private const val THEME_MODE = "theme_mode"
     private const val ADVANCED_MODE = "advanced_mode"
     private const val SHIZUKU_MODE = "shizuku_mode"
+    private const val AUTO_REBOOT_MODE = "auto_reboot_mode"
+    private const val ADVANCED_LOGS_MODE = "advanced_logs_mode"
     private const val CONSUMED_INSTALL_REQUEST = "consumed_install_request"
 
     fun accentColor(context: Context): AccentColor = AccentColor.fromStoredValue(
@@ -41,9 +44,7 @@ object AppPreferences {
     )
 
     fun setAccentColor(context: Context, color: AccentColor) {
-        prefs(context).edit()
-            .putString(ACCENT_COLOR, color.storedValue)
-            .apply()
+        prefs(context).edit().putString(ACCENT_COLOR, color.storedValue).apply()
     }
 
     fun themeMode(context: Context): AppThemeMode = AppThemeMode.fromStoredValue(
@@ -51,27 +52,35 @@ object AppPreferences {
     )
 
     fun setThemeMode(context: Context, themeMode: AppThemeMode) {
-        prefs(context).edit()
-            .putString(THEME_MODE, themeMode.storedValue)
-            .apply()
+        prefs(context).edit().putString(THEME_MODE, themeMode.storedValue).apply()
     }
 
     fun advancedMode(context: Context): Boolean =
         prefs(context).getBoolean(ADVANCED_MODE, false)
 
     fun setAdvancedMode(context: Context, enabled: Boolean) {
-        prefs(context).edit()
-            .putBoolean(ADVANCED_MODE, enabled)
-            .apply()
+        prefs(context).edit().putBoolean(ADVANCED_MODE, enabled).apply()
     }
 
     fun shizukuMode(context: Context): Boolean =
         prefs(context).getBoolean(SHIZUKU_MODE, false)
 
     fun setShizukuMode(context: Context, enabled: Boolean) {
-        prefs(context).edit()
-            .putBoolean(SHIZUKU_MODE, enabled)
-            .apply()
+        prefs(context).edit().putBoolean(SHIZUKU_MODE, enabled).apply()
+    }
+
+    fun autoRebootMode(context: Context): Boolean =
+        prefs(context).getBoolean(AUTO_REBOOT_MODE, true)
+
+    fun setAutoRebootMode(context: Context, enabled: Boolean) {
+        prefs(context).edit().putBoolean(AUTO_REBOOT_MODE, enabled).apply()
+    }
+
+    fun advancedLogsMode(context: Context): Boolean =
+        prefs(context).getBoolean(ADVANCED_LOGS_MODE, false)
+
+    fun setAdvancedLogsMode(context: Context, enabled: Boolean) {
+        prefs(context).edit().putBoolean(ADVANCED_LOGS_MODE, enabled).apply()
     }
 
     @Synchronized
@@ -79,9 +88,7 @@ object AppPreferences {
         if (requestId.isNullOrBlank()) return false
         val preferences = prefs(context)
         if (preferences.getString(CONSUMED_INSTALL_REQUEST, null) == requestId) return false
-        return preferences.edit()
-            .putString(CONSUMED_INSTALL_REQUEST, requestId)
-            .commit()
+        return preferences.edit().putString(CONSUMED_INSTALL_REQUEST, requestId).commit()
     }
 
     private fun prefs(context: Context) =

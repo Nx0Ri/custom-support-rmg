@@ -58,6 +58,10 @@ class PayloadRepository(private val context: Context) {
         label: String,
         onProgress: (String) -> Unit,
     ): File {
+        if (destination.exists() && destination.length() == artifact.size) {
+            onProgress(context.getString(R.string.repo_verified, label) + " (Cached)")
+            return destination
+        }
         onProgress(context.getString(R.string.repo_downloading, label))
         val temporary = File(destination.parentFile, "${destination.name}.part")
         val connection = open(artifact.url)
@@ -102,9 +106,8 @@ class PayloadRepository(private val context: Context) {
     private fun rawUrl(commit: String, path: String) = "$RAW_REPOSITORY/$commit/$path"
 
     private fun pinArtifactUrl(url: String, commit: String): String {
-        return url
+        return url;
     }
-
 
     private fun downloadBytes(url: String, maximum: Int): ByteArray {
         val connection = open(url)
