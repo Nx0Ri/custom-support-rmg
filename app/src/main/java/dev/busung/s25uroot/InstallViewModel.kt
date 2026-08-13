@@ -482,9 +482,9 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
     private fun File.readTextIfPresent(): String = if (exists()) readText() else ""
 
     companion object {
-        private const val EXPLOIT_ATTEMPTS = "24"
-        private const val P0_ATTEMPT_TIMEOUT_SEC = "45"
-        private const val EXPLOIT_ATTEMPT_TIMEOUT_SEC = "120"
+        private const val EXPLOIT_ATTEMPTS = "12"
+        private const val P0_ATTEMPT_TIMEOUT_SEC = "90"
+        private const val EXPLOIT_ATTEMPT_TIMEOUT_SEC = "240"
         private const val EXPLOIT_STALL_MILLIS = 90_000L
         private const val EXPLOIT_TOTAL_MILLIS = 900_000L
         private const val INSTALL_RECEIPT = "install_receipt"
@@ -501,7 +501,7 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
         private const val SHIZUKU_PAYLOAD_PATH = "/data/local/tmp/ksu-payload"
         private const val SHIZUKU_KSUD_PATH = "/data/local/tmp/ksud-s25u-kdp"
         private const val SHIZUKU_KSUD_STAGE_PATH = "/data/local/tmp/.ksud-stage"
-        private val LOG_POLL_INTERVAL = 250.milliseconds
+        private val LOG_POLL_INTERVAL = 150.milliseconds
         private val SHIZUKU_LOG_POLL_INTERVAL = 1.seconds
         private val ANSI_ESCAPE = Regex("\u001B\\[[0-?]*[ -/]*[@-~]")
         private val P0_OFFSET_PATTERN = Regex(
