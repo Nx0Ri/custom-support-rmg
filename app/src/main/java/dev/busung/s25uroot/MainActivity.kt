@@ -165,6 +165,8 @@ class MainActivity : ComponentActivity() {
     private var themeMode by mutableStateOf(AppThemeMode.System)
     private var advancedMode by mutableStateOf(false)
     private var shizukuMode by mutableStateOf(false)
+    private var autoRebootMode by mutableStateOf(true)
+    private var advancedLogsMode by mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -174,6 +176,9 @@ class MainActivity : ComponentActivity() {
         themeMode = AppPreferences.themeMode(this)
         advancedMode = AppPreferences.advancedMode(this)
         shizukuMode = AppPreferences.shizukuMode(this)
+        autoRebootMode = AppPreferences.autoRebootMode(this)
+        advancedLogsMode = AppPreferences.advancedLogsMode(this)
+
         setContent {
             RootMyGalaxyTheme(accentColor = accentColor, themeMode = themeMode) {
                 RootApp(
@@ -182,6 +187,8 @@ class MainActivity : ComponentActivity() {
                     themeMode = themeMode,
                     advancedMode = advancedMode,
                     shizukuMode = shizukuMode,
+                    autoRebootMode = autoRebootMode,
+                    advancedLogsMode = advancedLogsMode,
                     onAccentColorChanged = { color ->
                         AppPreferences.setAccentColor(this, color)
                         accentColor = color
@@ -197,6 +204,14 @@ class MainActivity : ComponentActivity() {
                     onShizukuModeChanged = { enabled ->
                         AppPreferences.setShizukuMode(this, enabled)
                         shizukuMode = enabled
+                    },
+                    onAutoRebootModeChanged = { enabled ->
+                        AppPreferences.setAutoRebootMode(this, enabled)
+                        autoRebootMode = enabled
+                    },
+                    onAdvancedLogsModeChanged = { enabled ->
+                        AppPreferences.setAdvancedLogsMode(this, enabled)
+                        advancedLogsMode = enabled
                     },
                     openInstaller = { profileId ->
                         val installer = Intent(this, InstallActivity::class.java)
@@ -279,10 +294,14 @@ private fun RootApp(
     themeMode: AppThemeMode,
     advancedMode: Boolean,
     shizukuMode: Boolean,
+    autoRebootMode: Boolean,
+    advancedLogsMode: Boolean,
     onAccentColorChanged: (AccentColor) -> Unit,
     onThemeModeChanged: (AppThemeMode) -> Unit,
     onAdvancedModeChanged: (Boolean) -> Unit,
     onShizukuModeChanged: (Boolean) -> Unit,
+    onAutoRebootModeChanged: (Boolean) -> Unit,
+    onAdvancedLogsModeChanged: (Boolean) -> Unit,
     openInstaller: (String?) -> Unit,
 ) {
     val installState by installViewModel.state.collectAsStateWithLifecycle()
@@ -299,6 +318,7 @@ private fun RootApp(
     val scope = rememberCoroutineScope()
     var updateStatus by remember { mutableStateOf<UpdateStatus>(UpdateStatus.Idle) }
     var updateCardDismissed by remember { mutableStateOf(false) }
+
     val checkForUpdate: () -> Unit = {
         if (!updateStatus.busy) {
             updateStatus = UpdateStatus.Checking
@@ -313,6 +333,7 @@ private fun RootApp(
             }
         }
     }
+
     val startDownload: (UpdateInfo) -> Unit = { info ->
         val apkUrl = info.apkUrl
         if (apkUrl == null) {
@@ -502,6 +523,8 @@ private fun RootApp(
                     themeMode = themeMode,
                     advancedMode = advancedMode,
                     shizukuMode = shizukuMode,
+                    autoRebootMode = autoRebootMode,
+                    advancedLogsMode = advancedLogsMode,
                     updateStatus = updateStatus,
                     onCheckForUpdate = checkForUpdate,
                     onStartDownload = startDownload,
@@ -509,6 +532,8 @@ private fun RootApp(
                     onThemeModeChanged = onThemeModeChanged,
                     onAdvancedModeChanged = onAdvancedModeChanged,
                     onShizukuModeChanged = onShizukuModeChanged,
+                    onAutoRebootModeChanged = onAutoRebootModeChanged,
+                    onAdvancedLogsModeChanged = onAdvancedLogsModeChanged,
                 )
             }
         }
@@ -1376,8 +1401,8 @@ private fun formatHistoryTime(timestamp: Long): String {
 
 private fun runLogFileName(entry: InstallHistoryEntry): String =
     "RootMyGalaxy-" +
-        SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date(entry.startedAtMillis)) +
-        "-${entry.result.name.lowercase(Locale.US)}.log"
+            SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date(entry.startedAtMillis)) +
+            "-${entry.result.name.lowercase(Locale.US)}.log"
 
 private fun saveRunLog(context: Context, uri: Uri, entry: InstallHistoryEntry) {
     val content = entry.log.ifBlank { context.getString(R.string.history_log_empty) }
@@ -1405,6 +1430,8 @@ private fun SettingsPage(
     themeMode: AppThemeMode,
     advancedMode: Boolean,
     shizukuMode: Boolean,
+    autoRebootMode: Boolean,
+    advancedLogsMode: Boolean,
     updateStatus: UpdateStatus,
     onCheckForUpdate: () -> Unit,
     onStartDownload: (UpdateInfo) -> Unit,
@@ -1412,6 +1439,8 @@ private fun SettingsPage(
     onThemeModeChanged: (AppThemeMode) -> Unit,
     onAdvancedModeChanged: (Boolean) -> Unit,
     onShizukuModeChanged: (Boolean) -> Unit,
+    onAutoRebootModeChanged: (Boolean) -> Unit,
+    onAdvancedLogsModeChanged: (Boolean) -> Unit,
 ) {
     val context = LocalContext.current
     val view = LocalView.current
@@ -1563,16 +1592,41 @@ private fun SettingsPage(
         }
         item { SectionLabel(stringResource(R.string.advanced)) }
         item {
-            SettingsSwitchCard(
-                icon = Icons.Rounded.Memory,
-                title = stringResource(R.string.advanced_mode),
-                description = stringResource(R.string.advanced_mode_description),
-                checked = advancedMode,
-                onCheckedChange = {
-                    clickHaptic(view)
-                    onAdvancedModeChanged(it)
-                },
-            )
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                SettingsSwitchCard(
+                    icon = Icons.Rounded.Memory,
+                    title = stringResource(R.string.advanced_mode),
+                    description = stringResource(R.string.advanced_mode_description),
+                    checked = advancedMode,
+                    position = SettingsCardPosition.Top,
+                    onCheckedChange = {
+                        clickHaptic(view)
+                        onAdvancedModeChanged(it)
+                    },
+                )
+                SettingsSwitchCard(
+                    icon = Icons.Rounded.BrightnessAuto,
+                    title = stringResource(R.string.auto_soft_reboot),
+                    description = stringResource(R.string.auto_soft_reboot_desc),
+                    checked = autoRebootMode,
+                    position = SettingsCardPosition.Middle,
+                    onCheckedChange = {
+                        clickHaptic(view)
+                        onAutoRebootModeChanged(it)
+                    },
+                )
+                SettingsSwitchCard(
+                    icon = Icons.Rounded.Code,
+                    title = stringResource(R.string.advanced_exploit_logs),
+                    description = stringResource(R.string.advanced_exploit_logs_desc),
+                    checked = advancedLogsMode,
+                    position = SettingsCardPosition.Bottom,
+                    onCheckedChange = {
+                        clickHaptic(view)
+                        onAdvancedLogsModeChanged(it)
+                    },
+                )
+            }
         }
         item { SectionLabel(stringResource(R.string.about)) }
         item {
@@ -1989,7 +2043,7 @@ private fun ThemeModeSelector(
                     imageVector = when (mode) {
                         AppThemeMode.System -> Icons.Rounded.BrightnessAuto
                         AppThemeMode.Light -> Icons.Rounded.LightMode
-                        AppThemeMode.Dark -> Icons.Rounded.DarkMode
+                        AppThemeMode.Dark, AppThemeMode.Amoled -> Icons.Rounded.DarkMode
                     },
                     contentDescription = null,
                 )
@@ -2307,4 +2361,5 @@ private fun themeModeLabel(themeMode: AppThemeMode): String = when (themeMode) {
     AppThemeMode.System -> stringResource(R.string.theme_system)
     AppThemeMode.Light -> stringResource(R.string.theme_light)
     AppThemeMode.Dark -> stringResource(R.string.theme_dark)
+    AppThemeMode.Amoled -> stringResource(R.string.theme_amoled)
 }

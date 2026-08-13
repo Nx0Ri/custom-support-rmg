@@ -32,11 +32,16 @@ import androidx.compose.material.icons.rounded.CloudDownload
 import androidx.compose.material.icons.rounded.Error
 import androidx.compose.material.icons.rounded.Memory
 import androidx.compose.material.icons.rounded.Security
+import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.PowerSettingsNew
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.LocalContentColor
@@ -44,12 +49,21 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -122,6 +136,7 @@ private fun clickHaptic(view: View) {
     )
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun InstallScreen(
     installState: InstallUiState,
@@ -130,12 +145,64 @@ private fun InstallScreen(
 ) {
     val logScrollState = rememberScrollState()
     val view = LocalView.current
+    val context = LocalContext.current
+    val intent = (context as? android.app.Activity)?.intent
+    val profileId = intent?.getStringExtra(InstallActivity.EXTRA_PROFILE_ID)
+    val installViewModel: InstallViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
+
+    val autoRebootEnabled = remember { AppPreferences.autoRebootMode(context) }
+    var countdown by remember { mutableIntStateOf(5) }
+    var rebootCanceled by remember { mutableStateOf(false) }
+
     LaunchedEffect(installState.log) {
         delay(40)
         logScrollState.scrollTo(logScrollState.maxValue)
     }
 
-    Scaffold { padding ->
+    LaunchedEffect(installState.phase, rebootCanceled, autoRebootEnabled) {
+        if (installState.phase == InstallPhase.Installed && autoRebootEnabled && !rebootCanceled) {
+            while (countdown > 0) {
+                delay(1000)
+                countdown--
+            }
+            if (!rebootCanceled) {
+                installViewModel.softReboot()
+            }
+        }
+    }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
+                actions = {
+                    if (installState.bootstrapAcquired && installState.phase != InstallPhase.Installed && !installState.busy) {
+                        IconButton(onClick = {
+                            clickHaptic(view)
+                            installViewModel.forceInstallKernelSu(profileId)
+                        }) {
+                            Icon(Icons.Rounded.PlayArrow, contentDescription = stringResource(R.string.force_install_ksu), modifier = Modifier.size(28.dp))
+                        }
+                    }
+                    if (installState.phase == InstallPhase.Installed) {
+                        IconButton(onClick = {
+                            clickHaptic(view)
+                            installViewModel.fullReboot()
+                        }) {
+                            Icon(Icons.Rounded.PowerSettingsNew, contentDescription = stringResource(R.string.full_reboot))
+                        }
+                        IconButton(onClick = {
+                            clickHaptic(view)
+                            installViewModel.softReboot()
+                        }) {
+                            Icon(Icons.Rounded.Refresh, contentDescription = stringResource(R.string.soft_reboot))
+                        }
+                    }
+                }
+            )
+        }
+    ) { padding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -144,7 +211,7 @@ private fun InstallScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Column(
-                modifier = Modifier.padding(top = 28.dp, bottom = 4.dp),
+                modifier = Modifier.padding(bottom = 4.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Text(
@@ -177,33 +244,42 @@ private fun InstallScreen(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     if (installState.phase == InstallPhase.Failed) {
-                        FilledTonalButton(
-                            onClick = {
-                                clickHaptic(view)
-                                onClose()
-                            },
-                            modifier = Modifier.weight(1f),
-                        ) {
+                        FilledTonalButton(onClick = { clickHaptic(view); onClose() }, modifier = Modifier.weight(1f)) {
                             Text(stringResource(R.string.action_close))
                         }
                         Button(
                             onClick = {
                                 clickHaptic(view)
-                                onRetry()
+                                installViewModel.fullReboot()
                             },
                             modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
                         ) {
-                            Text(stringResource(R.string.action_retry))
+                            Text(stringResource(R.string.full_reboot))
                         }
                     } else if (installState.phase == InstallPhase.Installed) {
-                        Button(
-                            onClick = {
-                                clickHaptic(view)
-                                onClose()
-                            },
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            Text(stringResource(R.string.action_done))
+                        if (autoRebootEnabled && !rebootCanceled) {
+                            Button(
+                                onClick = { clickHaptic(view); rebootCanceled = true },
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary)
+                            ) {
+                                Text(stringResource(R.string.auto_rebooting, countdown))
+                            }
+                        } else {
+                            FilledTonalButton(onClick = { clickHaptic(view); onClose() }, modifier = Modifier.weight(1f)) {
+                                Text(stringResource(R.string.action_done))
+                            }
+                            Button(
+                                onClick = {
+                                    clickHaptic(view)
+                                    installViewModel.softReboot()
+                                },
+                                modifier = Modifier.weight(1.5f)
+                            ) {
+                                Icon(Icons.Rounded.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Text(stringResource(R.string.soft_reboot), modifier = Modifier.padding(start = 8.dp))
+                            }
                         }
                     }
                 }

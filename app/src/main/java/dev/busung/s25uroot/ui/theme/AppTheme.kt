@@ -56,8 +56,9 @@ fun RootMyGalaxyTheme(
     val darkTheme = when (themeMode) {
         AppThemeMode.System -> systemDarkTheme
         AppThemeMode.Light -> false
-        AppThemeMode.Dark -> true
+        AppThemeMode.Dark, AppThemeMode.Amoled -> true
     }
+
     val colors = if (accentColor == AccentColor.Dynamic) {
         if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
     } else {
@@ -76,6 +77,21 @@ fun RootMyGalaxyTheme(
         }
     }
 
+    val finalColors = if (themeMode == AppThemeMode.Amoled) {
+        colors.copy(
+            background = Color.Black,
+            surface = Color.Black,
+            surfaceContainer = Color.Black,
+            surfaceContainerHigh = Color(0xFF0F0F0F),
+            surfaceContainerHighest = Color(0xFF1A1A1A),
+            surfaceContainerLow = Color.Black,
+            surfaceContainerLowest = Color.Black,
+            onSurface = Color.White,
+            onBackground = Color.White,
+            onSurfaceVariant = Color(0xFFE0E0E0)
+        )
+    } else colors
+
     SideEffect {
         val window = (context as Activity).window
         WindowCompat.getInsetsController(window, window.decorView).apply {
@@ -85,7 +101,7 @@ fun RootMyGalaxyTheme(
     }
 
     MaterialExpressiveTheme(
-        colorScheme = colors,
+        colorScheme = finalColors,
         typography = AppTypography,
         motionScheme = MotionScheme.expressive(),
         content = content,
