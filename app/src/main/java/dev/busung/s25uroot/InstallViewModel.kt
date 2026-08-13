@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.io.File
 import java.io.InputStream
+import java.security.MessageDigest
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
@@ -49,6 +50,30 @@ data class TargetCatalogUiState(
 )
 
 private data class CommandResult(val code: Int, val output: String)
+
+/**
+ * Payloads are truncated to a fixed release size, so a rebuild of a target --
+ * or a different target padded to the same size -- has exactly the length of
+ * whatever is already staged, and would keep running in its place.
+ */
+internal fun stagedFileIsCurrent(staged: File, source: File): Boolean {
+    if (!staged.exists()) return false
+    val stagedDigest = sha256OrNull(staged) ?: return false
+    return stagedDigest == sha256OrNull(source)
+}
+
+private fun sha256OrNull(file: File): String? = runCatching {
+    file.inputStream().use { input ->
+        val digest = MessageDigest.getInstance("SHA-256")
+        val buffer = ByteArray(8192)
+        while (true) {
+            val count = input.read(buffer)
+            if (count < 0) break
+            digest.update(buffer, 0, count)
+        }
+        digest.digest().joinToString("") { "%02x".format(it) }
+    }
+}.getOrNull()
 
 class InstallViewModel(application: Application) : AndroidViewModel(application) {
     private val app = application
@@ -383,7 +408,7 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
 
     private fun shizukuStage(source: File, target: String, mode: String): File {
         val staged = File(target)
-        if (staged.exists() && staged.length() == source.length()) return staged
+        if (stagedFileIsCurrent(staged, source)) return staged
         try {
             ShizukuController.writeFile(target, mode, source.inputStream())
         } catch (error: Throwable) {
