@@ -12,7 +12,10 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.annotation.StringRes
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -35,6 +38,7 @@ import androidx.compose.material.icons.rounded.Security
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.PowerSettingsNew
 import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -62,6 +66,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
@@ -151,22 +156,33 @@ private fun InstallScreen(
     val installViewModel: InstallViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
 
     val autoRebootEnabled = remember { AppPreferences.autoRebootMode(context) }
-    var countdown by remember { mutableIntStateOf(5) }
+    var countdown by remember { mutableIntStateOf(10) }
     var rebootCanceled by remember { mutableStateOf(false) }
+    var elapsedSeconds by remember { mutableIntStateOf(0) }
 
     LaunchedEffect(installState.log) {
         delay(40)
         logScrollState.scrollTo(logScrollState.maxValue)
     }
 
+    LaunchedEffect(installState.phase) {
+        if (installState.phase == InstallPhase.Exploiting) {
+            while (installState.phase == InstallPhase.Exploiting) {
+                delay(1000)
+                elapsedSeconds++
+            }
+        }
+    }
+
     LaunchedEffect(installState.phase, rebootCanceled, autoRebootEnabled) {
         if (installState.phase == InstallPhase.Installed && autoRebootEnabled && !rebootCanceled) {
             while (countdown > 0) {
                 delay(1000)
+                if (rebootCanceled) return@LaunchedEffect // Instant exit upon cancellation
                 countdown--
             }
             if (!rebootCanceled) {
-                installViewModel.softReboot()
+                installViewModel.instantSoftReboot()
             }
         }
     }
@@ -194,7 +210,7 @@ private fun InstallScreen(
                         }
                         IconButton(onClick = {
                             clickHaptic(view)
-                            installViewModel.softReboot()
+                            installViewModel.instantSoftReboot()
                         }) {
                             Icon(Icons.Rounded.Refresh, contentDescription = stringResource(R.string.soft_reboot))
                         }
@@ -207,7 +223,8 @@ private fun InstallScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .padding(horizontal = 20.dp),
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Column(
@@ -217,6 +234,7 @@ private fun InstallScreen(
                 Text(
                     text = stringResource(R.string.install_title),
                     style = MaterialTheme.typography.headlineLarge,
+                    fontFamily = FontFamily.Monospace
                 )
                 Text(
                     text = if (installState.busy) {
@@ -225,14 +243,19 @@ private fun InstallScreen(
                         installState.message
                     },
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontFamily = FontFamily.Monospace
                 )
             }
 
-            InstallerStatusCard(installState)
+            InstallerStatusCard(installState, elapsedSeconds)
             InstallerSteps(installState.phase)
+            
+            var logExpanded by remember { mutableStateOf(true) }
             InstallerLog(
                 output = installState.log,
-                modifier = Modifier.weight(1f),
+                expanded = logExpanded,
+                onExpandedChange = { logExpanded = it },
+                modifier = if (logExpanded) Modifier.weight(1f) else Modifier,
                 scrollState = logScrollState,
             )
 
@@ -245,17 +268,17 @@ private fun InstallScreen(
                 ) {
                     if (installState.phase == InstallPhase.Failed) {
                         FilledTonalButton(onClick = { clickHaptic(view); onClose() }, modifier = Modifier.weight(1f)) {
-                            Text(stringResource(R.string.action_close))
+                            Text(stringResource(R.string.action_close), fontFamily = FontFamily.Monospace)
                         }
                         Button(
                             onClick = {
                                 clickHaptic(view)
-                                installViewModel.fullReboot()
+                                installViewModel.forceFullReboot()
                             },
                             modifier = Modifier.weight(1f),
                             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
                         ) {
-                            Text(stringResource(R.string.full_reboot))
+                            Text(stringResource(R.string.full_reboot), fontFamily = FontFamily.Monospace)
                         }
                     } else if (installState.phase == InstallPhase.Installed) {
                         if (autoRebootEnabled && !rebootCanceled) {
@@ -264,21 +287,21 @@ private fun InstallScreen(
                                 modifier = Modifier.fillMaxWidth(),
                                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary)
                             ) {
-                                Text(stringResource(R.string.auto_rebooting, countdown))
+                                Text(stringResource(R.string.auto_rebooting, countdown), fontFamily = FontFamily.Monospace)
                             }
                         } else {
                             FilledTonalButton(onClick = { clickHaptic(view); onClose() }, modifier = Modifier.weight(1f)) {
-                                Text(stringResource(R.string.action_done))
+                                Text(stringResource(R.string.action_done), fontFamily = FontFamily.Monospace)
                             }
                             Button(
                                 onClick = {
                                     clickHaptic(view)
-                                    installViewModel.softReboot()
+                                    installViewModel.instantSoftReboot()
                                 },
                                 modifier = Modifier.weight(1.5f)
                             ) {
                                 Icon(Icons.Rounded.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
-                                Text(stringResource(R.string.soft_reboot), modifier = Modifier.padding(start = 8.dp))
+                                Text(stringResource(R.string.soft_reboot), modifier = Modifier.padding(start = 8.dp), fontFamily = FontFamily.Monospace)
                             }
                         }
                     }
@@ -289,12 +312,12 @@ private fun InstallScreen(
 }
 
 @Composable
-private fun InstallerStatusCard(installState: InstallUiState) {
+private fun InstallerStatusCard(installState: InstallUiState, elapsedSeconds: Int) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .animateContentSize(),
-        shape = MaterialTheme.shapes.large,
+        shape = androidx.compose.ui.graphics.RectangleShape, // Strictly square geek look
         colors = CardDefaults.cardColors(
             containerColor = when (installState.phase) {
                 InstallPhase.Failed -> MaterialTheme.colorScheme.errorContainer
@@ -337,10 +360,12 @@ private fun InstallerStatusCard(installState: InstallUiState) {
                     Text(
                         text = installState.message,
                         style = MaterialTheme.typography.titleLarge,
+                        fontFamily = FontFamily.Monospace
                     )
                     Text(
                         text = installPhaseDetail(installState.phase),
                         color = LocalContentColor.current.copy(alpha = 0.78f),
+                        fontFamily = FontFamily.Monospace
                     )
                 }
             }
@@ -351,67 +376,100 @@ private fun InstallerStatusCard(installState: InstallUiState) {
                 trackColor = LocalContentColor.current.copy(alpha = 0.2f),
                 drawStopIndicator = {},
             )
+            if (installState.phase == InstallPhase.Exploiting || installState.currentAttempts.isNotEmpty()) {
+                val timeString = String.format("%02d:%02d", elapsedSeconds / 60, elapsedSeconds % 60)
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text(timeString, style = MaterialTheme.typography.labelSmall, color = LocalContentColor.current.copy(alpha = 0.78f), fontFamily = FontFamily.Monospace)
+                    if (installState.currentAttempts.isNotEmpty()) {
+                        Text(
+                            text = "Attempts: ${installState.currentAttempts}",
+                            style = MaterialTheme.typography.labelSmall, 
+                            color = LocalContentColor.current.copy(alpha = 0.78f), 
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
+                }
+            }
         }
     }
 }
 
 @Composable
 private fun InstallerSteps(phase: InstallPhase) {
+    var expanded by remember { mutableStateOf(false) }
+    val view = LocalView.current
     Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.large,
+        modifier = Modifier.fillMaxWidth().animateContentSize(),
+        shape = androidx.compose.ui.graphics.RectangleShape, // "Gigantic" rectangular highlight
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
         ),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
+        onClick = { clickHaptic(view); expanded = !expanded }
     ) {
         Column(
-            modifier = Modifier.padding(16.dp),
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            installerSteps.forEachIndexed { index, step ->
-                val stepState = stepState(phase, index)
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(14.dp),
-                ) {
-                    Surface(
-                        modifier = Modifier.size(38.dp),
-                        shape = CircleShape,
-                        color = if (stepState >= 1) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.surfaceContainerHighest
-                        },
-                        contentColor = if (stepState >= 1) {
-                            MaterialTheme.colorScheme.onPrimary
-                        } else {
-                            MaterialTheme.colorScheme.onSurface
-                        },
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                imageVector = if (stepState == 2) Icons.Rounded.Check else step.icon,
-                                contentDescription = null,
-                                modifier = Modifier.size(21.dp),
-                            )
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                Text("Steps", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f), fontFamily = FontFamily.Monospace)
+                Icon(
+                    Icons.Rounded.KeyboardArrowDown,
+                    contentDescription = null,
+                    modifier = Modifier.rotate(if (expanded) 180f else 0f)
+                )
+            }
+            if (expanded) {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    installerSteps.forEachIndexed { index, step ->
+                        val stepState = stepState(phase, index)
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(14.dp),
+                        ) {
+                            Surface(
+                                modifier = Modifier.size(38.dp),
+                                color = if (stepState >= 1) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.surfaceContainerHighest
+                                },
+                                contentColor = if (stepState >= 1) {
+                                    MaterialTheme.colorScheme.onPrimary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurface
+                                },
+                                border = if (stepState == 0) BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant) else null,
+                                shape = androidx.compose.ui.graphics.RectangleShape // Strictly square geek look
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = if (stepState == 2) Icons.Rounded.Check else step.icon,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(21.dp),
+                                    )
+                                }
+                            }
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = stringResource(step.title),
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                                Text(
+                                    text = stringResource(step.detail),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.78f),
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            }
+                            if (stepState == 1 && phase !in setOf(InstallPhase.Failed, InstallPhase.Ready)) {
+                                LoadingIndicator(
+                                    modifier = Modifier.size(24.dp),
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                )
+                            }
                         }
-                    }
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = stringResource(step.title),
-                            style = MaterialTheme.typography.titleSmall,
-                        )
-                        Text(
-                            text = stringResource(step.detail),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.78f),
-                        )
-                    }
-                    if (stepState == 1 && phase !in setOf(InstallPhase.Failed, InstallPhase.Ready)) {
-                        LoadingIndicator(
-                            modifier = Modifier.size(24.dp),
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
                     }
                 }
             }
@@ -422,31 +480,45 @@ private fun InstallerSteps(phase: InstallPhase) {
 @Composable
 private fun InstallerLog(
     output: String,
+    expanded: Boolean,
+    onExpandedChange: (Boolean) -> Unit,
     modifier: Modifier,
     scrollState: androidx.compose.foundation.ScrollState,
 ) {
+    val view = LocalView.current
     Card(
-        modifier = modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.large,
+        modifier = modifier,
+        shape = androidx.compose.ui.graphics.RectangleShape, // "Gigantic" rectangular highlight
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
+        onClick = { clickHaptic(view); onExpandedChange(!expanded) }
     ) {
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(16.dp),
+            modifier = Modifier.fillMaxWidth().padding(16.dp).animateContentSize(),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text(stringResource(R.string.install_live_progress), style = MaterialTheme.typography.titleMedium)
-            Text(
-                text = output.ifBlank { stringResource(R.string.install_preparing) },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-                    .verticalScroll(scrollState),
-                fontFamily = FontFamily.Monospace,
-                fontSize = 12.sp,
-                lineHeight = 18.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically, 
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(stringResource(R.string.install_live_progress), style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f), fontFamily = FontFamily.Monospace)
+                Icon(
+                    Icons.Rounded.KeyboardArrowDown,
+                    contentDescription = null,
+                    modifier = Modifier.rotate(if (expanded) 180f else 0f)
+                )
+            }
+            if (expanded) {
+                Text(
+                    text = output.ifBlank { stringResource(R.string.install_preparing) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(scrollState),
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 11.sp,
+                    lineHeight = 16.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
     }
 }

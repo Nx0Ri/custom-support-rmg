@@ -1,6 +1,7 @@
 package dev.busung.s25uroot
 
 import android.content.Context
+import android.net.Uri
 import android.system.Os
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -16,9 +17,34 @@ data class VerifiedPayloads(
 )
 
 class PayloadRepository(private val context: Context) {
+    private fun getRawRepoUrl(): String =
+        AppPreferences.targetsRepoUrl(context) ?: RAW_REPOSITORY
+
+    private fun getCommitApiUrl(): String {
+        val custom = AppPreferences.targetsRepoUrl(context)
+        if (custom != null && custom.contains("raw.githubusercontent.com")) {
+            // Try to convert raw URL to API URL for commit resolving
+            return custom.replace("raw.githubusercontent.com", "api.github.com/repos")
+                .replace(Regex("/([^/]+)$"), "/git/ref/heads/$1") // Assuming last part is branch
+        }
+        return COMMIT_API_URL
+    }
+
     fun loadTargets(): List<TargetProfile> {
-        val commit = resolveMainCommit()
-        val manifestBytes = downloadBytes(rawUrl(commit, "support/targets-v3.json"), MAX_MANIFEST_BYTES)
+        val manifestFile = File(context.filesDir, "cached_manifest.json")
+        val manifestBytes = try {
+            val commit = resolveMainCommit()
+            val bytes = downloadBytes(rawUrl(commit, "support/targets-v3.json"), MAX_MANIFEST_BYTES)
+            manifestFile.writeBytes(bytes)
+            bytes
+        } catch (error: Throwable) {
+            if (manifestFile.exists()) {
+                manifestFile.readBytes()
+            } else {
+                throw error
+            }
+        }
+        val commit = try { resolveMainCommit() } catch (e: Exception) { "main" }
         return SupportManifest.parse(manifestBytes).targets.map { profile -> profile.copy(
             exploit = profile.exploit.copy(url = pinArtifactUrl(profile.exploit.url, commit)),
             kernelSu = profile.kernelSu.copy(url = pinArtifactUrl(profile.kernelSu.url, commit)),
@@ -35,21 +61,52 @@ class PayloadRepository(private val context: Context) {
 
     fun download(profile: TargetProfile, onProgress: (String) -> Unit): VerifiedPayloads {
         val directory = File(context.filesDir, "payloads/${profile.profileId}").apply { mkdirs() }
-        val exploit = downloadArtifact(
-            profile.exploit,
-            File(directory, "cve-2026-43499-app.so"),
-            context.getString(R.string.artifact_exploit),
-            onProgress,
-        )
-        val kernelSu = downloadArtifact(
-            profile.kernelSu,
-            File(directory, "ksud-s25u-kdp"),
-            context.getString(R.string.artifact_kernelsu),
-            onProgress,
-        )
+
+        val customExploitUri = AppPreferences.exploitPayloadUri(context)
+        val customKernelSuUri = AppPreferences.kernelSuPayloadUri(context)
+        
+        val exploitDest = File(directory, "cve-2026-43499-app.so")
+        val ksuDest = File(directory, "ksud-s25u-kdp")
+
+        val exploit = if (customExploitUri != null) {
+            copyCustomPayload(customExploitUri, exploitDest, "exploit", onProgress)
+        } else {
+            downloadArtifact(
+                profile.exploit,
+                exploitDest,
+                context.getString(R.string.artifact_exploit),
+                onProgress,
+            )
+        }
+
+        val kernelSu = if (customKernelSuUri != null) {
+            copyCustomPayload(customKernelSuUri, ksuDest, "KernelSU", onProgress)
+        } else {
+            downloadArtifact(
+                profile.kernelSu,
+                ksuDest,
+                context.getString(R.string.artifact_kernelsu),
+                onProgress,
+            )
+        }
+
         Os.chmod(exploit.absolutePath, 0b100100100)
         Os.chmod(kernelSu.absolutePath, 0b100100100)
         return VerifiedPayloads(profile, exploit, kernelSu)
+    }
+
+    private fun copyCustomPayload(uriStr: String, destination: File, label: String, onProgress: (String) -> Unit): File {
+        onProgress("Using local custom $label...")
+        try {
+            val uri = Uri.parse(uriStr)
+            context.contentResolver.openInputStream(uri)?.use { input ->
+                destination.outputStream().use { output -> input.copyTo(output) }
+            }
+            onProgress("Local $label ready")
+            return destination
+        } catch (e: Exception) {
+            error("Failed to read local custom $label: ${e.message}")
+        }
     }
 
     private fun downloadArtifact(
@@ -95,7 +152,7 @@ class PayloadRepository(private val context: Context) {
     }
 
     private fun resolveMainCommit(): String {
-        val response = downloadBytes(COMMIT_API_URL, MAX_COMMIT_RESPONSE_BYTES)
+        val response = downloadBytes(getCommitApiUrl(), MAX_COMMIT_RESPONSE_BYTES)
         val commit = JSONObject(response.toString(Charsets.UTF_8))
             .getJSONObject("object")
             .getString("sha")
@@ -103,13 +160,13 @@ class PayloadRepository(private val context: Context) {
         return commit
     }
 
-    private fun rawUrl(commit: String, path: String) = "$RAW_REPOSITORY/$commit/$path"
+    private fun rawUrl(commit: String, path: String) = "${getRawRepoUrl()}/$commit/$path"
 
     private fun pinArtifactUrl(url: String, commit: String): String {
         return url;
     }
 
-    private fun downloadBytes(url: String, maximum: Int): ByteArray {
+    fun downloadBytes(url: String, maximum: Int): ByteArray {
         val connection = open(url)
         val bytes = connection.inputStream.use { input ->
             val output = ByteArrayOutputStream()

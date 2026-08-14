@@ -5,6 +5,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
 import android.view.HapticFeedbackConstants
 import android.view.View
 import android.widget.Toast
@@ -67,6 +68,7 @@ import androidx.compose.material.icons.rounded.BrightnessAuto
 import androidx.compose.material.icons.rounded.DarkMode
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.CloudDownload
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.SelectAll
 import androidx.compose.material.icons.rounded.Error
@@ -85,6 +87,9 @@ import androidx.compose.material.icons.rounded.Save
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.VerifiedUser
 import androidx.compose.material.icons.rounded.Warning
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.SettingsSuggest
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonGroupDefaults
@@ -113,6 +118,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.ToggleButton
 import androidx.compose.material3.ToggleButtonDefaults
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
@@ -124,6 +131,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -143,8 +151,10 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import androidx.compose.ui.window.DialogWindowProvider
@@ -260,7 +270,7 @@ private val languageOptions = listOf(
 )
 
 private const val KERNEL_SU_MANAGER_URL =
-    "https://github.com/backslashxx/KernelSU/releases/download/v3.2.5-59%2B2/KernelSU_v3.2.5-59+2_32586-release.apk"
+    "https://github.com/backslashxx/KernelSU/releases/download/v3.2.5-59/KernelSU_v3.2.5-59_32584-release.apk"
 private const val KERNEL_SU_MANAGER_PACKAGE = "me.weishu.kernelsu"
 private const val KERNEL_SU_HOME_URL = "https://kernelsu.org/"
 private const val SHIZUKU_MANAGER_PACKAGE = "moe.shizuku.manager"
@@ -274,7 +284,9 @@ private fun openKernelSuManager(context: Context) {
     if (launch != null) {
         context.startActivity(launch)
     } else {
-        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(KERNEL_SU_MANAGER_URL)))
+        val customUrl = AppPreferences.kernelSuApkUrl(context)
+        val url = if (!customUrl.isNullOrBlank()) customUrl else KERNEL_SU_MANAGER_URL
+        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
     }
 }
 
@@ -287,6 +299,7 @@ private fun openShizukuManager(context: Context) {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun RootApp(
     installViewModel: InstallViewModel,
@@ -471,6 +484,24 @@ private fun RootApp(
     }
 
     Scaffold(
+        topBar = {
+            if (selectedPage == AppPage.Overview) {
+                TopAppBar(
+                    title = { },
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
+                    actions = {
+                        if (installState.jailbreakActive || installState.phase == InstallPhase.Installed) {
+                            IconButton(onClick = {
+                                clickHaptic(view)
+                                installViewModel.instantSoftReboot()
+                            }) {
+                                Icon(Icons.Rounded.Refresh, contentDescription = stringResource(R.string.soft_reboot))
+                            }
+                        }
+                    }
+                )
+            }
+        },
         bottomBar = {
             NavigationBar(
                 containerColor = MaterialTheme.colorScheme.surfaceContainer,
@@ -504,7 +535,9 @@ private fun RootApp(
                     onStartDownload = startDownload,
                     onInstall = {
                         selectedProfile = null
-                        if (advancedMode) {
+                        if (installState.jailbreakActive) {
+                            installViewModel.installKernelSuOnly()
+                        } else if (advancedMode) {
                             showTargetPicker = true
                             installViewModel.loadTargetCatalog()
                         } else {
@@ -583,6 +616,9 @@ private fun OverviewPage(
     onStartDownload: (UpdateInfo) -> Unit,
     onInstall: () -> Unit,
 ) {
+    val uptimeMillis = SystemClock.elapsedRealtime()
+    val uptimeHours = uptimeMillis / (1000 * 60 * 60)
+
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(padding),
         contentPadding = PaddingValues(horizontal = 20.dp, vertical = 20.dp),
@@ -604,6 +640,7 @@ private fun OverviewPage(
                 Text(
                     text = stringResource(R.string.app_name),
                     style = MaterialTheme.typography.headlineLarge,
+                    fontFamily = FontFamily.Monospace
                 )
                 Spacer(modifier = Modifier.weight(1f))
                 AppVersionText(
@@ -612,10 +649,51 @@ private fun OverviewPage(
                 )
             }
         }
-        if (
-            !updateCardDismissed &&
-            updateStatus.info != null
-        ) {
+
+        if (uptimeHours > 100) {
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = MaterialTheme.shapes.large,
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer,
+                        contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                    ),
+                ) {
+                    Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Rounded.Warning, contentDescription = null, modifier = Modifier.size(32.dp))
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text(stringResource(R.string.uptime_warning_title), style = MaterialTheme.typography.titleMedium, fontFamily = FontFamily.Monospace)
+                            Text(stringResource(R.string.uptime_warning_body, uptimeHours), style = MaterialTheme.typography.bodyMedium, fontFamily = FontFamily.Monospace)
+                        }
+                    }
+                }
+            }
+        } else if (uptimeHours > 12) {
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = MaterialTheme.shapes.large,
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer,
+                        contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                    ),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.error)
+                ) {
+                    Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Rounded.Warning, contentDescription = null, modifier = Modifier.size(32.dp))
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text(stringResource(R.string.uptime_warning_title), style = MaterialTheme.typography.titleMedium, fontFamily = FontFamily.Monospace)
+                            Text(stringResource(R.string.uptime_fragmentation_warning), style = MaterialTheme.typography.bodyMedium, fontFamily = FontFamily.Monospace)
+                        }
+                    }
+                }
+            }
+        }
+
+        if (!updateCardDismissed && updateStatus.info != null) {
             item {
                 UpdateCard(
                     status = updateStatus,
@@ -682,6 +760,7 @@ private fun UpdateCard(
                 Text(
                     text = stringResource(R.string.updater_available_title),
                     style = MaterialTheme.typography.titleMedium,
+                    fontFamily = FontFamily.Monospace,
                     modifier = Modifier.weight(1f),
                 )
                 IconButton(
@@ -701,6 +780,7 @@ private fun UpdateCard(
             Text(
                 text = stringResource(R.string.updater_available_body, info.versionName),
                 style = MaterialTheme.typography.bodyMedium,
+                fontFamily = FontFamily.Monospace,
             )
             when (status) {
                 is UpdateStatus.Downloading -> {
@@ -715,6 +795,7 @@ private fun UpdateCard(
                         text = stringResource(R.string.updater_downloading),
                         style = MaterialTheme.typography.bodyMedium,
                         color = LocalContentColor.current.copy(alpha = 0.78f),
+                        fontFamily = FontFamily.Monospace,
                     )
                 }
                 else -> {
@@ -722,7 +803,7 @@ private fun UpdateCard(
                         clickHaptic(view)
                         onStartDownload(info)
                     }) {
-                        Text(stringResource(R.string.updater_button_download))
+                        Text(stringResource(R.string.updater_button_download), fontFamily = FontFamily.Monospace)
                     }
                 }
             }
@@ -732,40 +813,53 @@ private fun UpdateCard(
 
 @Composable
 private fun HowItWorksCard() {
+    var expanded by remember { mutableStateOf(false) }
+    val view = LocalView.current
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().animateContentSize(),
         shape = MaterialTheme.shapes.large,
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-        ),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
     ) {
         Column(
-            modifier = Modifier.padding(18.dp),
+            modifier = Modifier.fillMaxWidth().clickable { clickHaptic(view); expanded = !expanded }.padding(18.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            Text(stringResource(R.string.how_it_works), style = MaterialTheme.typography.titleMedium)
-            installerSteps.forEach { step ->
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    Surface(
-                        modifier = Modifier.size(36.dp),
-                        shape = CircleShape,
-                        color = MaterialTheme.colorScheme.primaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(step.icon, contentDescription = null, modifier = Modifier.size(20.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(stringResource(R.string.how_it_works), style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f), fontFamily = FontFamily.Monospace)
+                Icon(
+                    Icons.Rounded.KeyboardArrowDown,
+                    contentDescription = null,
+                    modifier = Modifier.rotate(if (expanded) 180f else 0f)
+                )
+            }
+            AnimatedVisibility(visible = expanded) {
+                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    installerSteps.forEach { step ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            Surface(
+                                modifier = Modifier.size(36.dp),
+                                shape = CircleShape,
+                                color = MaterialTheme.colorScheme.primaryContainer,
+                                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(step.icon, contentDescription = null, modifier = Modifier.size(20.dp))
+                                }
+                            }
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(stringResource(step.title), style = MaterialTheme.typography.titleSmall, fontFamily = FontFamily.Monospace)
+                                Text(
+                                    stringResource(step.detail),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            }
                         }
-                    }
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(stringResource(step.title), style = MaterialTheme.typography.titleSmall)
-                        Text(
-                            stringResource(step.detail),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
                     }
                 }
             }
@@ -778,8 +872,9 @@ private fun InstallStatusCard(installState: InstallUiState, onInstall: () -> Uni
     val context = LocalContext.current
     val view = LocalView.current
     val interactionSource = remember { MutableInteractionSource() }
-    val uriHandler = LocalUriHandler.current
     val managerInstalled = remember(installState) { isKernelSuManagerInstalled(context) }
+    val installViewModel: InstallViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
+
     Card(
         onClick = {
             clickHaptic(view)
@@ -789,18 +884,25 @@ private fun InstallStatusCard(installState: InstallUiState, onInstall: () -> Uni
                     if (managerInstalled) {
                         openKernelSuManager(context)
                     } else {
-                        uriHandler.openUri(KERNEL_SU_MANAGER_URL)
+                        installViewModel.installManagerApk()
+                    }
+                }
+                installState.jailbreakActive -> {
+                    if (!managerInstalled) {
+                        installViewModel.installManagerApk()
+                    } else {
+                        onInstall() // Rerun logic or skip exploit
                     }
                 }
                 else -> onInstall()
             }
         },
         modifier = Modifier.fillMaxWidth().animateContentSize(),
-        shape = expressiveClickableCardShape(interactionSource),
+        shape = androidx.compose.ui.graphics.RectangleShape, // Enormous geek rectangle
         interactionSource = interactionSource,
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer,
-            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+            containerColor = if (installState.jailbreakActive && !managerInstalled) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.primaryContainer,
+            contentColor = if (installState.jailbreakActive && !managerInstalled) MaterialTheme.colorScheme.onTertiaryContainer else MaterialTheme.colorScheme.onPrimaryContainer,
         ),
     ) {
         Row(
@@ -811,20 +913,20 @@ private fun InstallStatusCard(installState: InstallUiState, onInstall: () -> Uni
             when {
                 installState.busy -> LoadingIndicator(
                     modifier = Modifier.size(44.dp),
-                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    color = LocalContentColor.current,
                 )
                 installState.phase == InstallPhase.Installed -> Icon(
                     Icons.Rounded.CheckCircle, contentDescription = null, modifier = Modifier.size(44.dp),
                 )
-                installState.phase == InstallPhase.Failed -> Icon(
-                    Icons.Rounded.Warning, contentDescription = null, modifier = Modifier.size(44.dp),
+                installState.jailbreakActive -> Icon(
+                    Icons.Rounded.VerifiedUser, contentDescription = null, modifier = Modifier.size(44.dp),
                 )
                 else -> Icon(
                     Icons.Rounded.Warning, contentDescription = null, modifier = Modifier.size(44.dp),
                 )
             }
             Column(modifier = Modifier.weight(1f)) {
-                if (installState.phase == InstallPhase.Installed) {
+                if (installState.phase == InstallPhase.Installed || installState.jailbreakActive) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -833,11 +935,15 @@ private fun InstallStatusCard(installState: InstallUiState, onInstall: () -> Uni
                             painter = painterResource(R.drawable.ic_kernelsu),
                             contentDescription = null,
                             modifier = Modifier.size(18.dp),
-                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                            tint = LocalContentColor.current,
                         )
                         Text(
-                            text = stringResource(R.string.status_ksu_active),
+                            text = if (installState.phase == InstallPhase.Installed) 
+                                stringResource(R.string.status_ksu_functional) 
+                            else 
+                                stringResource(R.string.status_jb_active_ksu_missing),
                             style = MaterialTheme.typography.titleMedium,
+                            fontFamily = FontFamily.Monospace
                         )
                     }
                 } else {
@@ -847,23 +953,24 @@ private fun InstallStatusCard(installState: InstallUiState, onInstall: () -> Uni
                             else -> installState.message
                         },
                         style = MaterialTheme.typography.titleMedium,
+                        fontFamily = FontFamily.Monospace
                     )
                 }
                 Text(
-                    text = when (installState.phase) {
-                        InstallPhase.Installed -> stringResource(
-                            if (managerInstalled) {
-                                R.string.install_tap_open_manager
-                            } else {
-                                R.string.install_tap_manager
-                            },
+                    text = when {
+                        installState.phase == InstallPhase.Installed -> stringResource(
+                            if (managerInstalled) R.string.install_tap_open_manager else R.string.install_tap_install_manager
                         )
-                        InstallPhase.Failed -> stringResource(R.string.install_tap_retry)
+                        installState.jailbreakActive -> stringResource(
+                            if (managerInstalled) R.string.install_tap_complete_ksu else R.string.install_tap_install_manager
+                        )
+                        installState.phase == InstallPhase.Failed -> stringResource(R.string.install_tap_retry)
                         else -> stringResource(R.string.install_tap_start)
                     },
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.86f),
+                    color = LocalContentColor.current.copy(alpha = 0.86f),
                     maxLines = 1,
+                    fontFamily = FontFamily.Monospace
                 )
             }
         }
@@ -876,7 +983,7 @@ private fun DeviceCard(device: DeviceSnapshot) {
     var kernelExpanded by remember { mutableStateOf(false) }
     Card(
         modifier = Modifier.fillMaxWidth().animateContentSize(),
-        shape = MaterialTheme.shapes.large,
+        shape = androidx.compose.ui.graphics.RectangleShape, // Sharp rectangle
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
         ),
@@ -922,8 +1029,57 @@ private fun InfoRow(
     ) {
         Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
         Column {
-            Text(label, style = MaterialTheme.typography.titleSmall)
-            Text(value, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(label, style = MaterialTheme.typography.titleSmall, fontFamily = FontFamily.Monospace)
+            Text(value, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, fontFamily = FontFamily.Monospace)
+        }
+    }
+}
+
+@Composable
+private fun HistoryStatsCard(history: List<InstallHistoryEntry>) {
+    val total = history.size
+    val successes = history.count { it.result == InstallRunResult.Succeeded }
+    val fails = history.count { it.result == InstallRunResult.Failed }
+    val rate = if (total > 0) (successes * 100) / total else 0
+
+    var avgTimeStr = "--"
+    var avgAttemptsStr = "--"
+
+    if (successes > 0) {
+        val successRuns = history.filter { it.result == InstallRunResult.Succeeded && it.completedAtMillis != null }
+        if (successRuns.isNotEmpty()) {
+            val avgTimeMillis = successRuns.map { it.completedAtMillis!! - it.startedAtMillis }.average().toLong()
+            avgTimeStr = String.format("%02d:%02d", (avgTimeMillis / 1000) / 60, (avgTimeMillis / 1000) % 60)
+
+            val attemptRegex = Regex("attempt=(\\d+)/")
+            val attempts = successRuns.mapNotNull { run ->
+                attemptRegex.findAll(run.log).lastOrNull()?.groupValues?.get(1)?.toIntOrNull()
+            }
+            if (attempts.isNotEmpty()) {
+                avgAttemptsStr = "%.1f".format(attempts.average())
+            }
+        }
+    }
+
+    Card(
+        modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+        shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest)
+    ) {
+        Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(stringResource(R.string.stats_title), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary, fontFamily = FontFamily.Monospace)
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Column {
+                    Text(stringResource(R.string.stats_runs) + ": $total", style = MaterialTheme.typography.bodyMedium, fontFamily = FontFamily.Monospace)
+                    Text(stringResource(R.string.stats_successes) + ": $successes", style = MaterialTheme.typography.bodyMedium, color = Color(0xFF4CAF50), fontFamily = FontFamily.Monospace)
+                    Text(stringResource(R.string.stats_fails) + ": $fails", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error, fontFamily = FontFamily.Monospace)
+                }
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(stringResource(R.string.stats_rate) + ": $rate%", style = MaterialTheme.typography.bodyMedium, fontFamily = FontFamily.Monospace)
+                    Text(stringResource(R.string.stats_avg_time) + ": $avgTimeStr", style = MaterialTheme.typography.bodyMedium, fontFamily = FontFamily.Monospace)
+                    Text(stringResource(R.string.stats_avg_attempts) + ": $avgAttemptsStr", style = MaterialTheme.typography.bodyMedium, fontFamily = FontFamily.Monospace)
+                }
+            }
         }
     }
 }
@@ -1058,6 +1214,7 @@ private fun HistoryList(
                         Text(
                             text = stringResource(R.string.history_title),
                             style = MaterialTheme.typography.headlineLarge,
+                            fontFamily = FontFamily.Monospace
                         )
                     }
                     AnimatedVisibility(
@@ -1091,6 +1248,7 @@ private fun HistoryList(
             if (history.isEmpty()) {
                 item { EmptyHistoryCard() }
             } else {
+                item { HistoryStatsCard(history) }
                 itemsIndexed(history, key = { _, entry -> entry.id }) { _, entry ->
                     HistoryEntryCard(
                         entry = entry,
@@ -1145,11 +1303,12 @@ private fun EmptyHistoryCard() {
         ) {
             Icon(Icons.Rounded.History, contentDescription = null, modifier = Modifier.size(32.dp))
             Column {
-                Text(stringResource(R.string.history_empty_title), style = MaterialTheme.typography.titleMedium)
+                Text(stringResource(R.string.history_empty_title), style = MaterialTheme.typography.titleMedium, fontFamily = FontFamily.Monospace)
                 Text(
                     stringResource(R.string.history_empty_description),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontFamily = FontFamily.Monospace
                 )
             }
         }
@@ -1167,7 +1326,7 @@ private fun HistoryEntryCard(
 ) {
     val view = LocalView.current
     val interactionSource = remember { MutableInteractionSource() }
-    val shape = expressiveClickableCardShape(interactionSource)
+    val shape = androidx.compose.ui.graphics.RectangleShape // Strictly square
     val containerColor = historyResultContainerColor(entry.result)
     val contentColor = historyResultContentColor(entry.result)
     val borderWidth by animateDpAsState(
@@ -1225,11 +1384,12 @@ private fun HistoryEntryCard(
                 }
             }
             Column(modifier = Modifier.weight(1f)) {
-                Text(historyResultLabel(entry.result), style = MaterialTheme.typography.titleMedium)
+                Text(historyResultLabel(entry.result), style = MaterialTheme.typography.titleMedium, fontFamily = FontFamily.Monospace)
                 Text(
                     formatHistoryTime(entry.startedAtMillis),
                     style = MaterialTheme.typography.bodyMedium,
                     color = contentColor.copy(alpha = 0.78f),
+                    fontFamily = FontFamily.Monospace
                 )
             }
             if (!selectionMode) {
@@ -1272,6 +1432,7 @@ private fun HistoryDetail(
                 Text(
                     stringResource(R.string.history_detail_title),
                     style = MaterialTheme.typography.headlineLarge,
+                    fontFamily = FontFamily.Monospace,
                     modifier = Modifier.weight(1f),
                 )
                 IconButton(onClick = {
@@ -1325,17 +1486,19 @@ private fun HistoryResultCard(entry: InstallHistoryEntry) {
         ) {
             Icon(historyResultIcon(entry.result), contentDescription = null, modifier = Modifier.size(38.dp))
             Column {
-                Text(historyResultLabel(entry.result), style = MaterialTheme.typography.titleLarge)
+                Text(historyResultLabel(entry.result), style = MaterialTheme.typography.titleLarge, fontFamily = FontFamily.Monospace)
                 Text(
                     stringResource(R.string.history_started, formatHistoryTime(entry.startedAtMillis)),
                     style = MaterialTheme.typography.bodyMedium,
                     color = contentColor.copy(alpha = 0.78f),
+                    fontFamily = FontFamily.Monospace
                 )
                 entry.completedAtMillis?.let { completedAt ->
                     Text(
                         stringResource(R.string.history_completed, formatHistoryTime(completedAt)),
                         style = MaterialTheme.typography.bodyMedium,
                         color = contentColor.copy(alpha = 0.78f),
+                        fontFamily = FontFamily.Monospace
                     )
                 }
                 entry.profileId?.let { profileId ->
@@ -1343,6 +1506,7 @@ private fun HistoryResultCard(entry: InstallHistoryEntry) {
                         stringResource(R.string.history_payload, profileId),
                         style = MaterialTheme.typography.bodyMedium,
                         color = contentColor.copy(alpha = 0.78f),
+                        fontFamily = FontFamily.Monospace
                     )
                 }
                 Text(
@@ -1355,6 +1519,7 @@ private fun HistoryResultCard(entry: InstallHistoryEntry) {
                     ),
                     style = MaterialTheme.typography.bodyMedium,
                     color = contentColor.copy(alpha = 0.78f),
+                    fontFamily = FontFamily.Monospace
                 )
             }
         }
@@ -1453,6 +1618,47 @@ private fun SettingsPage(
     var colorMenuTop by remember { mutableStateOf(32.dp) }
     val density = LocalDensity.current
     val currentLanguageTag = AppPreferences.languageTag(context)
+    
+    var exploitPayloadUri by remember { mutableStateOf(AppPreferences.exploitPayloadUri(context)) }
+    var ksuPayloadUri by remember { mutableStateOf(AppPreferences.kernelSuPayloadUri(context)) }
+    var ksuApkUrl by remember { mutableStateOf(AppPreferences.kernelSuApkUrl(context) ?: "") }
+    var targetsRepoUrl by remember { mutableStateOf(AppPreferences.targetsRepoUrl(context) ?: "") }
+
+    val exploitPickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            // Check extension
+            val name = context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                val nameIndex = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                cursor.moveToFirst()
+                cursor.getString(nameIndex)
+            }
+            if (name?.endsWith(".so") == true) {
+                context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                AppPreferences.setExploitPayloadUri(context, uri.toString())
+                exploitPayloadUri = uri.toString()
+            } else {
+                Toast.makeText(context, "Exploit payload must be a .so file", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    val ksuPickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            // Check extension
+            val name = context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                val nameIndex = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                cursor.moveToFirst()
+                cursor.getString(nameIndex)
+            }
+            if (name != null && !name.contains(".")) {
+                context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                AppPreferences.setKernelSuPayloadUri(context, uri.toString())
+                ksuPayloadUri = uri.toString()
+            } else {
+                Toast.makeText(context, "KernelSU payload must have no extension", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
 
     if (showShizukuMissingDialog) {
         AlertDialog(
@@ -1628,25 +1834,51 @@ private fun SettingsPage(
                 )
             }
         }
-        item { SectionLabel(stringResource(R.string.about)) }
+        item { SectionLabel(stringResource(R.string.payload_settings)) }
         item {
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                UpdateSettingsCard(
-                    status = updateStatus,
-                    position = SettingsCardPosition.Top,
-                    onCheckForUpdate = onCheckForUpdate,
-                    onStartDownload = onStartDownload,
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                // Exploit Payload
+                PayloadCard(
+                    title = stringResource(R.string.exploit_payload),
+                    uri = exploitPayloadUri,
+                    onSelect = { exploitPickerLauncher.launch(arrayOf("*/*")) },
+                    onClear = { 
+                        AppPreferences.setExploitPayloadUri(context, null)
+                        exploitPayloadUri = null
+                    }
                 )
-                SettingsCard(
-                    icon = Icons.Rounded.Info,
-                    title = stringResource(R.string.about),
-                    description = stringResource(R.string.about_description),
-                    value = "",
-                    position = SettingsCardPosition.Bottom,
-                    onClick = {
-                        clickHaptic(view)
-                        showAboutDialog = true
-                    },
+                
+                // KernelSU Payload
+                PayloadCard(
+                    title = stringResource(R.string.kernelsu_payload),
+                    uri = ksuPayloadUri,
+                    onSelect = { ksuPickerLauncher.launch(arrayOf("*/*")) },
+                    onClear = {
+                        AppPreferences.setKernelSuPayloadUri(context, null)
+                        ksuPayloadUri = null
+                    }
+                )
+
+                // KSU APK URL
+                UrlInputCard(
+                    title = stringResource(R.string.ksu_apk_url),
+                    description = stringResource(R.string.ksu_apk_url_desc),
+                    value = ksuApkUrl,
+                    onValueChange = { 
+                        ksuApkUrl = it
+                        AppPreferences.setKernelSuApkUrl(context, it.ifBlank { null })
+                    }
+                )
+
+                // Repo URL
+                UrlInputCard(
+                    title = stringResource(R.string.targets_repo_url),
+                    description = stringResource(R.string.targets_repo_url_desc),
+                    value = targetsRepoUrl,
+                    onValueChange = {
+                        targetsRepoUrl = it
+                        AppPreferences.setTargetsRepoUrl(context, it.ifBlank { null })
+                    }
                 )
             }
         }
@@ -1654,9 +1886,77 @@ private fun SettingsPage(
 }
 
 @Composable
+private fun PayloadCard(
+    title: String,
+    uri: String?,
+    onSelect: () -> Unit,
+    onClear: () -> Unit
+) {
+    val view = LocalView.current
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = androidx.compose.ui.graphics.RectangleShape, // "Gigantic" rectangular highlight
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest),
+        onClick = { clickHaptic(view); onSelect() }
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Rounded.CloudDownload, contentDescription = null, modifier = Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary)
+                Spacer(modifier = Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(title, style = MaterialTheme.typography.titleMedium, fontFamily = FontFamily.Monospace)
+                    Text(
+                        if (uri == null) stringResource(R.string.payload_default) else stringResource(R.string.payload_local),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontFamily = FontFamily.Monospace
+                    )
+                }
+                if (uri != null) {
+                    IconButton(onClick = { 
+                        // Stop propagation is handled by not calling onSelect if deleting
+                        clickHaptic(view)
+                        onClear() 
+                    }) {
+                        Icon(Icons.Rounded.Delete, contentDescription = null, modifier = Modifier.size(20.dp))
+                    }
+                }
+                Icon(Icons.Rounded.ChevronRight, contentDescription = null)
+            }
+        }
+    }
+}
+
+@Composable
+private fun UrlInputCard(
+    title: String,
+    description: String,
+    value: String,
+    onValueChange: (String) -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = androidx.compose.ui.graphics.RectangleShape, // Consistent "Gigantic" look
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest),
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            androidx.compose.material3.OutlinedTextField(
+                value = value,
+                onValueChange = onValueChange,
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text(title, fontFamily = FontFamily.Monospace) },
+                supportingText = { Text(description, fontFamily = FontFamily.Monospace) },
+                textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
+                singleLine = true,
+                shape = MaterialTheme.shapes.medium
+            )
+        }
+    }
+}
+
+@Composable
 private fun UpdateSettingsCard(
     status: UpdateStatus,
-    position: SettingsCardPosition,
     onCheckForUpdate: () -> Unit,
     onStartDownload: (UpdateInfo) -> Unit,
 ) {
@@ -1673,7 +1973,7 @@ private fun UpdateSettingsCard(
             }
         },
         modifier = Modifier.fillMaxWidth(),
-        shape = expressiveClickableCardShape(interactionSource, position),
+        shape = androidx.compose.ui.graphics.RectangleShape, // Strictly square
         interactionSource = interactionSource,
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
@@ -1704,6 +2004,7 @@ private fun UpdateSettingsCard(
                         else -> stringResource(R.string.updater_check)
                     },
                     style = MaterialTheme.typography.titleMedium,
+                    fontFamily = FontFamily.Monospace
                 )
                 Text(
                     text = when {
@@ -1719,6 +2020,7 @@ private fun UpdateSettingsCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                    fontFamily = FontFamily.Monospace
                 )
             }
             if (status is UpdateStatus.Available) {
@@ -1727,6 +2029,7 @@ private fun UpdateSettingsCard(
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.primary,
                     maxLines = 1,
+                    fontFamily = FontFamily.Monospace
                 )
             }
         }
@@ -1766,10 +2069,12 @@ private fun TargetSelectionSheet(
                 Text(
                     stringResource(R.string.select_device_title),
                     style = MaterialTheme.typography.headlineSmall,
+                    fontFamily = FontFamily.Monospace
                 )
                 Text(
                     stringResource(R.string.select_device_description),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontFamily = FontFamily.Monospace
                 )
             }
 
@@ -1792,7 +2097,7 @@ private fun TargetSelectionSheet(
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 Checkbox(checked = showOnlyMyDevice, onCheckedChange = null)
-                Text(stringResource(R.string.show_my_device_only), style = MaterialTheme.typography.titleMedium)
+                Text(stringResource(R.string.show_my_device_only), style = MaterialTheme.typography.titleMedium, fontFamily = FontFamily.Monospace)
             }
 
             when {
@@ -1834,7 +2139,7 @@ private fun TargetSelectionSheet(
                         }
                         Surface(
                             modifier = Modifier.fillMaxWidth(),
-                            shape = MaterialTheme.shapes.large,
+                            shape = androidx.compose.ui.graphics.RectangleShape, // Square picker
                             color = if (selected) {
                                 MaterialTheme.colorScheme.primaryContainer
                             } else {
@@ -1861,11 +2166,13 @@ private fun TargetSelectionSheet(
                                     Text(
                                         profile.displayName,
                                         style = MaterialTheme.typography.titleMedium,
+                                        fontFamily = FontFamily.Monospace
                                     )
                                     Text(
                                         modelLabel,
                                         style = MaterialTheme.typography.bodyMedium,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        fontFamily = FontFamily.Monospace
                                     )
                                 }
                             }
@@ -1883,7 +2190,7 @@ private fun TargetSelectionSheet(
                     clickHaptic(view)
                     onDismiss()
                 }, modifier = Modifier.weight(1f)) {
-                    Text(stringResource(R.string.action_cancel))
+                    Text(stringResource(R.string.action_cancel), fontFamily = FontFamily.Monospace)
                 }
                 Button(
                     onClick = {
@@ -1893,7 +2200,7 @@ private fun TargetSelectionSheet(
                     enabled = selectedProfile != null,
                     modifier = Modifier.weight(1f),
                 ) {
-                    Text(stringResource(R.string.action_next))
+                    Text(stringResource(R.string.action_next), fontFamily = FontFamily.Monospace)
                 }
             }
         }
@@ -1906,6 +2213,7 @@ private fun SectionLabel(text: String) {
         text = text,
         style = MaterialTheme.typography.labelLarge,
         color = MaterialTheme.colorScheme.primary,
+        fontFamily = FontFamily.Monospace,
         modifier = Modifier.padding(start = 18.dp, top = 6.dp, bottom = 2.dp),
     )
 }
@@ -1936,7 +2244,7 @@ private fun SettingsCard(
             onClick()
         },
         modifier = modifier.fillMaxWidth(),
-        shape = expressiveClickableCardShape(interactionSource, position),
+        shape = androidx.compose.ui.graphics.RectangleShape, // Sharp rectangle
         interactionSource = interactionSource,
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
@@ -1949,13 +2257,14 @@ private fun SettingsCard(
         ) {
             Icon(icon, contentDescription = null, modifier = Modifier.size(28.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text(title, style = MaterialTheme.typography.titleMedium)
+                Text(title, style = MaterialTheme.typography.titleMedium, fontFamily = FontFamily.Monospace)
                 Text(
                     description,
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                    fontFamily = FontFamily.Monospace
                 )
             }
             Text(
@@ -1963,6 +2272,7 @@ private fun SettingsCard(
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.primary,
                 maxLines = 1,
+                fontFamily = FontFamily.Monospace
             )
         }
     }
@@ -1985,7 +2295,7 @@ private fun SettingsSwitchCard(
             onCheckedChange(!checked)
         },
         modifier = Modifier.fillMaxWidth(),
-        shape = expressiveClickableCardShape(interactionSource, position),
+        shape = androidx.compose.ui.graphics.RectangleShape, // Sharp rectangle
         interactionSource = interactionSource,
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
@@ -1998,11 +2308,12 @@ private fun SettingsSwitchCard(
         ) {
             Icon(icon, contentDescription = null, modifier = Modifier.size(28.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text(title, style = MaterialTheme.typography.titleMedium)
+                Text(title, style = MaterialTheme.typography.titleMedium, fontFamily = FontFamily.Monospace)
                 Text(
                     description,
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontFamily = FontFamily.Monospace
                 )
             }
             Switch(checked = checked, onCheckedChange = null)
@@ -2021,7 +2332,7 @@ private fun ThemeModeSelector(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween),
     ) {
-        themeModes.forEachIndexed { index, mode ->
+        themeModes.forEach { mode ->
             ToggleButton(
                 checked = themeMode == mode,
                 onCheckedChange = {
@@ -2032,23 +2343,33 @@ private fun ThemeModeSelector(
                 colors = ToggleButtonDefaults.toggleButtonColors(
                     containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
                 ),
-                shapes = when (index) {
-                    0 -> ButtonGroupDefaults.connectedLeadingButtonShapes()
-                    themeModes.lastIndex -> ButtonGroupDefaults.connectedTrailingButtonShapes()
-                    else -> ButtonGroupDefaults.connectedMiddleButtonShapes()
-                },
-                contentPadding = PaddingValues(horizontal = 10.dp),
+                shapes = ButtonGroupDefaults.connectedMiddleButtonShapes(), // Square corners
+                contentPadding = PaddingValues(horizontal = 4.dp),
             ) {
-                Icon(
-                    imageVector = when (mode) {
-                        AppThemeMode.System -> Icons.Rounded.BrightnessAuto
-                        AppThemeMode.Light -> Icons.Rounded.LightMode
-                        AppThemeMode.Dark, AppThemeMode.Amoled -> Icons.Rounded.DarkMode
-                    },
-                    contentDescription = null,
-                )
-                Spacer(Modifier.size(ToggleButtonDefaults.IconSpacing))
-                Text(themeModeLabel(mode), maxLines = 1)
+                if (mode == AppThemeMode.Amoled) {
+                    Box(contentAlignment = Alignment.Center, modifier = Modifier.size(20.dp)) {
+                        Text(
+                            "A",
+                            style = TextStyle(
+                                fontWeight = FontWeight.Black,
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 16.sp
+                            )
+                        )
+                    }
+                } else {
+                    Icon(
+                        imageVector = when (mode) {
+                            AppThemeMode.System -> Icons.Rounded.SettingsSuggest
+                            AppThemeMode.Light -> Icons.Rounded.LightMode
+                            else -> Icons.Rounded.DarkMode
+                        },
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+                Spacer(Modifier.size(6.dp))
+                Text(themeModeLabel(mode), maxLines = 1, overflow = TextOverflow.Visible, softWrap = false, fontSize = 12.sp, fontFamily = FontFamily.Monospace)
             }
         }
     }
@@ -2062,11 +2383,11 @@ private fun AboutDialog(onDismiss: () -> Unit) {
         onDismissRequest = onDismiss,
         title = {
             DialogDimAmount(0.34f)
-            Text(stringResource(R.string.about_title))
+            Text(stringResource(R.string.about_title), fontFamily = FontFamily.Monospace)
         },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                Text(stringResource(R.string.about_body))
+                Text(stringResource(R.string.about_body), fontFamily = FontFamily.Monospace)
                 AppVersionText(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -2090,11 +2411,13 @@ private fun AboutDialog(onDismiss: () -> Unit) {
                             Text(
                                 stringResource(R.string.kernelsu_card_title),
                                 style = MaterialTheme.typography.titleSmall,
+                                fontFamily = FontFamily.Monospace
                             )
                             Text(
                                 stringResource(R.string.kernelsu_card_description),
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontFamily = FontFamily.Monospace
                             )
                         }
                         Icon(Icons.Rounded.Link, contentDescription = stringResource(R.string.open_github))
@@ -2118,11 +2441,13 @@ private fun AboutDialog(onDismiss: () -> Unit) {
                             Text(
                                 stringResource(R.string.github_card_title),
                                 style = MaterialTheme.typography.titleSmall,
+                                fontFamily = FontFamily.Monospace
                             )
                             Text(
                                 stringResource(R.string.github_card_description),
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontFamily = FontFamily.Monospace
                             )
                         }
                         Icon(Icons.Rounded.Link, contentDescription = stringResource(R.string.open_github))
@@ -2135,7 +2460,7 @@ private fun AboutDialog(onDismiss: () -> Unit) {
                 clickHaptic(view)
                 onDismiss()
             }) {
-                Text(stringResource(R.string.action_close))
+                Text(stringResource(R.string.action_close), fontFamily = FontFamily.Monospace)
             }
         },
     )

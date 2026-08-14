@@ -37,6 +37,10 @@ object AppPreferences {
     private const val SHIZUKU_MODE = "shizuku_mode"
     private const val AUTO_REBOOT_MODE = "auto_reboot_mode"
     private const val ADVANCED_LOGS_MODE = "advanced_logs_mode"
+    private const val EXPLOIT_PAYLOAD_URI = "exploit_payload_uri"
+    private const val KERNELSU_PAYLOAD_URI = "kernelsu_payload_uri"
+    private const val KERNELSU_APK_URL = "kernelsu_apk_url"
+    private const val TARGETS_REPO_URL = "targets_repo_url"
     private const val CONSUMED_INSTALL_REQUEST = "consumed_install_request"
 
     fun accentColor(context: Context): AccentColor = AccentColor.fromStoredValue(
@@ -81,6 +85,45 @@ object AppPreferences {
 
     fun setAdvancedLogsMode(context: Context, enabled: Boolean) {
         prefs(context).edit().putBoolean(ADVANCED_LOGS_MODE, enabled).apply()
+    }
+
+    fun exploitPayloadUri(context: Context): String? {
+        val prefs = prefs(context)
+        val uri = prefs.getString(EXPLOIT_PAYLOAD_URI, null)
+        if (uri != null) return uri
+
+        // Migration from old key
+        val oldUri = prefs.getString("custom_payload_uri", null)
+        if (oldUri != null) {
+            prefs.edit().putString(EXPLOIT_PAYLOAD_URI, oldUri).remove("custom_payload_uri").apply()
+            return oldUri
+        }
+        return null
+    }
+
+    fun setExploitPayloadUri(context: Context, uri: String?) {
+        prefs(context).edit().putString(EXPLOIT_PAYLOAD_URI, uri).apply()
+    }
+
+    fun kernelSuPayloadUri(context: Context): String? =
+        prefs(context).getString(KERNELSU_PAYLOAD_URI, null)
+
+    fun setKernelSuPayloadUri(context: Context, uri: String?) {
+        prefs(context).edit().putString(KERNELSU_PAYLOAD_URI, uri).apply()
+    }
+
+    fun kernelSuApkUrl(context: Context): String? =
+        prefs(context).getString(KERNELSU_APK_URL, null)
+
+    fun setKernelSuApkUrl(context: Context, url: String?) {
+        prefs(context).edit().putString(KERNELSU_APK_URL, url).apply()
+    }
+
+    fun targetsRepoUrl(context: Context): String? =
+        prefs(context).getString(TARGETS_REPO_URL, null)
+
+    fun setTargetsRepoUrl(context: Context, url: String?) {
+        prefs(context).edit().putString(TARGETS_REPO_URL, url).apply()
     }
 
     @Synchronized

@@ -32,7 +32,9 @@ data class InstallUiState(
     val probeOutput: String = "",
     val log: String = "",
     val fullLog: String = "",
-    val bootstrapAcquired: Boolean = false
+    val bootstrapAcquired: Boolean = false,
+    val jailbreakActive: Boolean = false, // Root acquired but KSU might be missing
+    val currentAttempts: String = ""
 ) {
     val busy: Boolean
         get() = phase in setOf(
@@ -75,16 +77,32 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
         discoveryJob?.cancel()
         discoveryJob = viewModelScope.launch(Dispatchers.IO) {
             val probe = NativeProbe.run()
-            if (detectInstalled()) {
+            val ksuActive = NativeProbe.isKernelSuActive()
+            val jbActive = isJailbreakRootActive()
+
+            if (ksuActive) {
                 mutableState.value = InstallUiState(
                     phase = InstallPhase.Installed,
-                    message = app.getString(R.string.status_ksu_active),
+                    message = app.getString(R.string.status_ksu_functional),
                     probeOutput = probe,
                     log = probe,
                     fullLog = probe,
                 )
                 return@launch
             }
+
+            if (jbActive) {
+                mutableState.value = InstallUiState(
+                    phase = InstallPhase.Ready,
+                    message = app.getString(R.string.status_jb_active_ksu_missing),
+                    probeOutput = probe,
+                    log = probe,
+                    fullLog = probe,
+                    jailbreakActive = true
+                )
+                return@launch
+            }
+
             try {
                 val profile = repository.resolveTarget(DeviceSnapshot.current())
                 val initialLog = "$probe\n${app.getString(R.string.log_profile, profile.profileId)}"
@@ -113,7 +131,27 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
             if (shizukuEnabled() && ShizukuController.isGranted()) {
                 ShizukuController.exec(arrayOf("svc", "power", "reboot")).waitFor()
             } else {
-                try { Runtime.getRuntime().exec(arrayOf("su", "-c", "svc power reboot || setprop sys.powerctl reboot || reboot")).waitFor() } catch(e:Exception){}
+                try { 
+                    Runtime.getRuntime().exec(arrayOf("su", "-c", "svc power reboot || setprop sys.powerctl reboot || reboot")).waitFor() 
+                } catch(e:Exception){
+                    try { Runtime.getRuntime().exec(arrayOf("reboot")).waitFor() } catch(_:Exception){}
+                }
+            }
+        }
+    }
+
+    fun forceFullReboot() {
+        viewModelScope.launch(Dispatchers.IO) {
+            // First try Shizuku as it is most official
+            if (shizukuEnabled() && ShizukuController.isRunning()) {
+                try { ShizukuController.exec(arrayOf("svc", "power", "reboot")).waitFor() } catch(_:Exception){}
+            }
+            // Then try su reboot
+            try { 
+                Runtime.getRuntime().exec(arrayOf("su", "-c", "svc power reboot || setprop sys.powerctl reboot || reboot")).waitFor() 
+            } catch(e:Exception){
+                // Direct reboot fallback
+                try { Runtime.getRuntime().exec(arrayOf("reboot")).waitFor() } catch(_:Exception){}
             }
         }
     }
@@ -125,6 +163,79 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
             } else {
                 try { Runtime.getRuntime().exec(arrayOf("su", "-c", "setprop ctl.restart zygote")).waitFor() } catch(e:Exception){}
             }
+        }
+    }
+
+    fun instantSoftReboot() {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                // Direct root reboot via terminal, instantly
+                Runtime.getRuntime().exec(arrayOf("su", "-c", "setprop ctl.restart zygote")).waitFor()
+            } catch (e: Exception) {
+                // Fallback to existing softReboot if su fails or isn't available as expected
+                softReboot()
+            }
+        }
+    }
+
+    fun installKernelSuOnly(profileId: String? = null) {
+        if (installJob?.isActive == true || NativeProbe.isKernelSuActive()) return
+        discoveryJob?.cancel()
+        installJob = viewModelScope.launch(Dispatchers.IO) {
+            startHistory()
+            try {
+                setPhase(InstallPhase.Checking, "Using active jailbreak root, preparing KernelSU...")
+                val profile = if (profileId == null) repository.resolveTarget(DeviceSnapshot.current()) else repository.resolveTarget(profileId)
+                updateHistoryProfile(profile.profileId)
+                setPhase(InstallPhase.Downloading, app.getString(R.string.status_downloading_payload))
+                val payloads = repository.download(profile) { appendLog("[*] $it") }
+                setPhase(InstallPhase.LoadingKernelSu, app.getString(R.string.status_ksu_loading))
+                installKernelSu(payloads)
+                setPhase(InstallPhase.Installed, app.getString(R.string.status_ksu_functional))
+                appendLog("[+] KernelSU module loaded via active jailbreak root")
+                finishHistory(InstallRunResult.Succeeded)
+            } catch (error: Throwable) {
+                appendLog("[-] ${error.message ?: error.javaClass.simpleName}")
+                setPhase(InstallPhase.Failed, app.getString(R.string.status_install_failed))
+                finishHistory(InstallRunResult.Failed)
+            }
+        }
+    }
+
+    fun installManagerApk() {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val customUrl = AppPreferences.kernelSuApkUrl(app)
+                val url = if (!customUrl.isNullOrBlank()) customUrl else "https://github.com/backslashxx/KernelSU/releases/download/v3.2.5-59/KernelSU_v3.2.5-59_32584-release.apk"
+                
+                appendLog("[*] Downloading KernelSU manager APK...")
+                val apkFile = File(app.cacheDir, "ksu_manager.apk")
+                val bytes = repository.downloadBytes(url, 20 * 1024 * 1024) // 20MB limit
+                apkFile.writeBytes(bytes)
+                
+                appendLog("[*] Installing KernelSU manager via root...")
+                val process = Runtime.getRuntime().exec(arrayOf("su", "-c", "pm install -r ${apkFile.absolutePath}"))
+                val exitCode = process.waitFor()
+                if (exitCode == 0) {
+                    appendLog("[+] KernelSU manager installed successfully")
+                } else {
+                    appendLog("[-] pm install failed with code $exitCode")
+                }
+            } catch (e: Exception) {
+                appendLog("[-] APK installation failed: ${e.message}")
+            }
+        }
+    }
+
+    private fun isJailbreakRootActive(): Boolean {
+        return try {
+            // Use a command that definitely requires root and works across Android versions
+            val process = Runtime.getRuntime().exec(arrayOf("su", "-c", "whoami || id"))
+            val output = process.inputStream.bufferedReader().use { it.readText() }.lowercase()
+            process.waitFor()
+            output.contains("root") || output.contains("uid=0")
+        } catch (_: Exception) {
+            false
         }
     }
 
@@ -168,7 +279,7 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                 val payloads = repository.download(profile) { appendLog("[*] $it") }
                 setPhase(InstallPhase.LoadingKernelSu, app.getString(R.string.status_ksu_loading))
                 installKernelSu(payloads)
-                setPhase(InstallPhase.Installed, app.getString(R.string.status_ksu_active))
+                setPhase(InstallPhase.Installed, app.getString(R.string.status_ksu_functional))
                 appendLog("[+] Installation complete (Forced via UI)")
                 finishHistory(InstallRunResult.Succeeded)
             } catch (error: Throwable) {
@@ -180,12 +291,15 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun install(profileId: String? = null) {
-        if (installJob?.isActive == true || mutableState.value.phase == InstallPhase.Installed) return
+        if (installJob?.isActive == true || NativeProbe.isKernelSuActive()) return
         discoveryJob?.cancel()
         installJob = viewModelScope.launch(Dispatchers.IO) {
-            mutableState.value = mutableState.value.copy(
+            // Reset state and immediately set to Checking to avoid "Ready" flicker
+            mutableState.value = InstallUiState(
                 phase = InstallPhase.Checking,
-                bootstrapAcquired = false
+                message = app.getString(R.string.status_checking_github),
+                bootstrapAcquired = false,
+                currentAttempts = ""
             )
             startHistory()
             try {
@@ -218,7 +332,7 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                 setPhase(InstallPhase.LoadingKernelSu, app.getString(R.string.status_ksu_loading))
                 installKernelSu(payloads)
 
-                setPhase(InstallPhase.Installed, app.getString(R.string.status_ksu_active))
+                setPhase(InstallPhase.Installed, app.getString(R.string.status_ksu_functional))
                 appendLog(app.getString(R.string.log_install_complete))
                 finishHistory(InstallRunResult.Succeeded)
             } catch (error: Throwable) {
@@ -286,13 +400,24 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                     lastRawLog = rawLog
                     lastProgressAt = SystemClock.elapsedRealtime()
 
+                    // Match attempt=did/total specifically for exploit runs
+                    val attemptMatch = Regex("exploit.*attempt=(\\d+/\\d+)").findAll(rawLog).lastOrNull()
+                    if (attemptMatch != null) {
+                        mutableState.value = mutableState.value.copy(currentAttempts = attemptMatch.groupValues[1])
+                    }
+
+                    // Detection for early failure: [-] exploit attempt=.* failed
+                    if (rawLog.contains("exploit attempt=") && rawLog.contains("failed")) {
+                        process.destroy()
+                        error(app.getString(R.string.error_exploit_fail_run))
+                    }
+
                     if (rawLog.contains("exploit completed") && rawLog.contains("done=1 root=1")) {
                         localBootstrapAcquired = true
                         mutableState.value = mutableState.value.copy(bootstrapAcquired = true)
                         break
                     }
                     if (rawLog.contains("full route requires P0 discovery") || rawLog.contains("fresh P0 session was consumed")) {
-                        // Очищаем битый оффсет, чтобы следующий прогон не упал из-за него
                         bootToken?.let { clearP0Offset(it) }
                         process.destroy()
                         throw java.lang.IllegalStateException("Wasted P0 session. Device reboot required.")
@@ -309,7 +434,6 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
             }
 
             if (localBootstrapAcquired) {
-                // ХАК ОРИ: Даем эксплойту 2.5 секунды, чтобы он успел закрепить рут
                 var gracePeriod = 25
                 while (process.isAlive && gracePeriod > 0) {
                     delay(100)
@@ -372,7 +496,7 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
         if (advanced) return line
         val l = line.trim()
 
-        if (l.startsWith("[*] Checking GitHub") || l.startsWith("[+] Support profile") ||
+        if (l.startsWith("[*] Checking") || l.startsWith("[+] Support profile") ||
             l.startsWith("[*] Downloading") || l.startsWith("[+] Payload") ||
             l.startsWith("[*] Running kernel") || l.startsWith("[+] Bootstrap") ||
             l.startsWith("[*] Late-loading") || l.startsWith("[+] KernelSU") ||
@@ -447,10 +571,6 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
         }
         if (lateLoad.output.isNotBlank()) appendLog(lateLoad.output)
         storeInstallReceipt()
-
-        // Удаляем только логи и мусор. БИНАРНИКИ KERNELSU (ksud) ТРОГАТЬ НЕЛЬЗЯ!
-        runHelper("-c", "/system/bin/rm -f /data/local/tmp/ksu-exploit.log /data/local/tmp/ksu-payload /data/local/tmp/ksu-helper")
-        appendLog("[*] System hygiene: Temporary exploit files wiped")
 
         appendLog(app.getString(R.string.log_ksu_control_verified))
     }
