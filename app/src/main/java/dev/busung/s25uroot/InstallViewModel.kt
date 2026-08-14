@@ -401,23 +401,23 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                     lastProgressAt = SystemClock.elapsedRealtime()
 
                     // Match attempt=did/total specifically for exploit runs
-                    val attemptMatch = Regex("exploit.*attempt=(\\d+/\\d+)").findAll(rawLog).lastOrNull()
+                    val attemptMatch = Regex("[+].*exploit.*attempt=(\\d+/\\d+)").findAll(rawLog).lastOrNull()
                     if (attemptMatch != null) {
                         mutableState.value = mutableState.value.copy(currentAttempts = attemptMatch.groupValues[1])
                     }
 
                     // Detection for early failure: [-] exploit attempt=.* failed
-                    if (rawLog.contains("exploit attempt=") && rawLog.contains("failed")) {
+                    if (rawLog.contains("[-] exploit attempt=") && rawLog.contains("failed status=255")) {
                         process.destroy()
                         error(app.getString(R.string.error_exploit_fail_run))
                     }
 
-                    if (rawLog.contains("exploit completed") && rawLog.contains("done=1 root=1")) {
+                    if (rawLog.contains("exploit completed") && rawLog.contains("root=1")) {
                         localBootstrapAcquired = true
                         mutableState.value = mutableState.value.copy(bootstrapAcquired = true)
                         break
                     }
-                    if (rawLog.contains("full route requires P0 discovery") || rawLog.contains("fresh P0 session was consumed")) {
+                    if (rawLog.contains("requires P0 discovery") || rawLog.contains("P0 session was consumed")) {
                         bootToken?.let { clearP0Offset(it) }
                         process.destroy()
                         throw java.lang.IllegalStateException("Wasted P0 session. Device reboot required.")
