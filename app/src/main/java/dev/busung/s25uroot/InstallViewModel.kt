@@ -405,13 +405,6 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                     if (attemptMatch != null) {
                         mutableState.value = mutableState.value.copy(currentAttempts = attemptMatch.groupValues[1])
                     }
-
-                    // Detection for early failure: [-] exploit attempt=.* failed
-                    if (rawLog.contains("[-] exploit attempt=") && rawLog.contains("failed status=255")) {
-                        process.destroy()
-                        error(app.getString(R.string.error_exploit_fail_run))
-                    }
-
                     if (rawLog.contains("exploit completed") && rawLog.contains("root=1")) {
                         localBootstrapAcquired = true
                         mutableState.value = mutableState.value.copy(bootstrapAcquired = true)
