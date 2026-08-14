@@ -206,7 +206,7 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val customUrl = AppPreferences.kernelSuApkUrl(app)
-                val url = if (!customUrl.isNullOrBlank()) customUrl else "https://github.com/backslashxx/KernelSU/releases/download/v3.2.5-59/KernelSU_v3.2.5-59_32584-release.apk"
+                val url = if (!customUrl.isNullOrBlank()) customUrl else "https://github.com/tiann/KernelSU/releases/download/v3.2.5/KernelSU_v3.2.5_32525-release.apk"
                 
                 appendLog("[*] Downloading KernelSU manager APK...")
                 val apkFile = File(app.cacheDir, "ksu_manager.apk")
